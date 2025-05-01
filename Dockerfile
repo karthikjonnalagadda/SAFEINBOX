@@ -11,7 +11,8 @@ COPY . .
 RUN cd backend && npm install
 
 # Install frontend dependencies
-RUN cd frontend && npm install && npm run build
+RUN cd frontend/frontend && npm install && npm run build
+
 
 # Expose port
 EXPOSE 5000
