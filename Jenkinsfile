@@ -15,7 +15,8 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    docker.build("${SAFEINBOX}")
+                    // Ensure that IMAGE_NAME is used consistently
+                    docker.build("${IMAGE_NAME}")
                 }
             }
         }
@@ -24,7 +25,7 @@ pipeline {
             steps {
                 script {
                     docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds') {
-                        docker.image("${SAFEINBOX}").push('latest')
+                        docker.image("${IMAGE_NAME}").push('latest')
                     }
                 }
             }
@@ -37,3 +38,4 @@ pipeline {
         }
     }
 }
+
