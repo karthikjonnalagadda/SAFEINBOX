@@ -17,7 +17,7 @@ pipeline {
         stage('Check Docker Version') {
             steps {
                 echo 'Checking Docker version...'
-                sh 'docker --version'
+                powershell 'docker --version'
             }
         }
 
@@ -25,7 +25,7 @@ pipeline {
             steps {
                 echo "Building Docker image: ${IMAGE_NAME}:${BUILD_ID}"
                 script {
-                    def shortCommit = sh(script: "git rev-parse --short HEAD", returnStdout: true).trim()
+                    def shortCommit = powershell(script: "git rev-parse --short HEAD", returnStdout: true).trim()
                     env.IMAGE_TAG = "${BUILD_ID}-${shortCommit}"
                     docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
                 }
@@ -48,9 +48,9 @@ pipeline {
             steps {
                 echo "Stopping existing container (if any) and deploying new one..."
                 script {
-                    sh """
-                        docker stop ${CONTAINER_NAME} || true
-                        docker rm ${CONTAINER_NAME} || true
+                    powershell """
+                        docker stop ${CONTAINER_NAME} || echo 'No container to stop.'
+                        docker rm ${CONTAINER_NAME} || echo 'No container to remove.'
                         docker run -d --restart unless-stopped -p 5000:5000 --name ${CONTAINER_NAME} ${IMAGE_NAME}:${IMAGE_TAG}
                     """
                 }
@@ -70,7 +70,7 @@ pipeline {
         failure {
             echo 'Pipeline failed! Displaying container logs (if available)...'
             script {
-                sh "docker logs ${CONTAINER_NAME} || echo 'No logs available.'"
+                powershell "docker logs ${CONTAINER_NAME} || echo 'No logs available.'"
             }
         }
         success {
