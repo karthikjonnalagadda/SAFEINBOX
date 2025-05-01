@@ -14,31 +14,21 @@ pipeline {
             }
         }
 
-        stage('Check Docker Version') {
-            steps {
-                echo 'Checking Docker version...'
-                powershell 'docker --version'
-            }
-        }
-
         stage('Build Docker Image') {
             steps {
-                echo "Building Docker image: ${IMAGE_NAME}:${BUILD_ID}"
+                echo "Building Docker image: ${IMAGE_NAME}"
                 script {
-                    def shortCommit = powershell(script: "git rev-parse --short HEAD", returnStdout: true).trim()
-                    env.IMAGE_TAG = "${BUILD_ID}-${shortCommit}"
-                    docker.build("${IMAGE_NAME}:${IMAGE_TAG}")
+                    docker.build("${IMAGE_NAME}")
                 }
             }
         }
 
         stage('Push to Docker Hub') {
             steps {
-                echo "Pushing image to Docker Hub: ${IMAGE_NAME}:${IMAGE_TAG}"
+                echo "Pushing image to Docker Hub: ${IMAGE_NAME}:latest"
                 script {
                     docker.withRegistry('https://index.docker.io/v1/', 'dockerhub-creds') {
-                        docker.image("${IMAGE_NAME}:${IMAGE_TAG}").push()
-                        docker.image("${IMAGE_NAME}:${IMAGE_TAG}").push('latest')
+                        docker.image("${IMAGE_NAME}").push('latest')
                     }
                 }
             }
@@ -48,33 +38,22 @@ pipeline {
             steps {
                 echo "Stopping existing container (if any) and deploying new one..."
                 script {
-                    powershell """
-                        docker stop ${CONTAINER_NAME} || echo 'No container to stop.'
-                        docker rm ${CONTAINER_NAME} || echo 'No container to remove.'
-                        docker run -d --restart unless-stopped -p 5000:5000 --name ${CONTAINER_NAME} ${IMAGE_NAME}:${IMAGE_TAG}
-                    """
+                    powershell '''
+                        docker stop ${CONTAINER_NAME} || echo "No container to stop."
+                        docker rm ${CONTAINER_NAME} || echo "No container to remove."
+                        docker run -d -p 5000:5000 --name ${CONTAINER_NAME} ${IMAGE_NAME}
+                    '''
                 }
             }
         }
-
-        // Optional: Frontend deployment
-        // stage('Deploy Frontend') {
-        //     steps {
-        //         echo "Deploying React frontend..."
-        //         // Add your React build & deployment steps here
-        //     }
-        // }
     }
 
     post {
         failure {
-            echo 'Pipeline failed! Displaying container logs (if available)...'
-            script {
-                powershell "docker logs ${CONTAINER_NAME} || echo 'No logs available.'"
-            }
+            echo 'Pipeline failed! Please check the logs.'
         }
         success {
-            echo "Pipeline completed successfully! Deployed image: ${IMAGE_NAME}:${IMAGE_TAG}"
+            echo 'Pipeline completed successfully!'
         }
     }
 }
