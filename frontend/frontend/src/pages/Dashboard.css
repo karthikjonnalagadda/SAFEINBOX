@@ -16,10 +16,12 @@
     overflow: hidden;
 }
 
-.email-table th, .email-table td {
+.email-table th,
+.email-table td {
     border: 1px solid #ddd;
     padding: 14px;
     text-align: left;
+    font-size: 14px;
 }
 
 .email-table th {
@@ -66,4 +68,16 @@
 .logout-btn:hover {
     background-color: #c82333;
     transform: scale(1.05);
+}
+
+.email-list {
+    transition: transform 0.3s ease-in-out;
+}
+
+.email-item {
+    transition: background-color 0.3s ease;
+}
+
+.email-item:hover {
+    background-color: #f1f1f1;
 }

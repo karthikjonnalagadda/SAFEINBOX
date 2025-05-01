@@ -1,57 +1,76 @@
-require("dotenv").config();
-const Imap = require("imap-simple");
+const Imap = require("imap");
+const { simpleParser } = require("mailparser");
 
-const config = {
-    imap: {
-        user: process.env.EMAIL_USERNAME,
-        password: process.env.EMAIL_PASSWORD,
-        host: "imap.gmail.com",
-        port: 993,
-        tls: true,
-        authTimeout: 30000,
-        tlsOptions: { rejectUnauthorized: false } // Fix for self-signed certificate error
-    }
-};
+function fetchEmails() {
+  return new Promise((resolve, reject) => {
+    const imap = new Imap({
+      user: process.env.EMAIL_USERNAME,
+      password: process.env.EMAIL_PASSWORD,
+      host: process.env.IMAP_HOST,
+      port: Number(process.env.IMAP_PORT),
+      tls: true,
+      tlsOptions: { rejectUnauthorized: false },
+    });
 
-async function fetchEmails() {
-    try {
-        const connection = await Imap.connect(config);
-        console.log("Connected to IMAP server");
+    imap.once("ready", function () {
+      imap.openBox("INBOX", true, function (err, box) {
+        if (err) {
+          reject(err);
+          return;
+        }
 
-        await connection.openBox("INBOX");
+        imap.search(['ALL'], function (err, results) {
+          if (err) {
+            reject(err);
+            return;
+          }
 
-        // Fetch all email UIDs and headers
-        const searchCriteria = ['ALL'];
-        const fetchOptions = {
-            bodies: ['HEADER'],
-            markSeen: false
-        };
-        
-        const results = await connection.search(searchCriteria, fetchOptions);
-        
-        // Sort by UID in descending order (latest first), then slice the latest 10
-        const sortedResults = results
-            .sort((a, b) => b.attributes.uid - a.attributes.uid)
-            .slice(0, 5);
-        
-        const emails = sortedResults.map((res) => {
-            const headerPart = res.parts.find((part) => part.which === "HEADER");
-            return {
-                id: res.attributes.uid,
-                subject: headerPart?.body?.subject?.[0] || "No Subject",
-                from: headerPart?.body?.from?.[0] || "Unknown Sender",
-            };
+          if (!results || results.length === 0) {
+            return resolve([]); // No emails
+          }
+
+          const fetch = imap.fetch(results, { bodies: "" });
+          const emails = [];
+
+          fetch.on("message", function (msg) {
+            msg.on("body", function (stream) {
+              let bodyBuffer = "";
+
+              stream.on("data", function (chunk) {
+                bodyBuffer += chunk.toString("utf8");
+              });
+
+              stream.once("end", async function () {
+                try {
+                  const parsed = await simpleParser(bodyBuffer);
+
+                  emails.push({
+                    subject: parsed.subject || "No Subject",
+                    from: parsed.from?.text || "Unknown Sender",
+                    date: parsed.date || "Unknown Date",
+                    body: parsed.text || "No Body",
+                  });
+                } catch (parseErr) {
+                  console.error("❌ Error parsing email:", parseErr.message);
+                }
+              });
+            });
+          });
+
+          fetch.once("end", function () {
+            imap.end();
+            resolve(emails);
+          });
         });
-        
+      });
+    });
 
-        console.log(emails);
-        connection.end();
-        return emails;
+    imap.once("error", function (err) {
+      reject(err);
+    });
 
-    } catch (error) {
-        console.error("Error fetching emails:", error);
-        return [];
-    }
+    imap.connect();
+  });
 }
 
 module.exports = fetchEmails;

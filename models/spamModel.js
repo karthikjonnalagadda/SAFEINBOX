@@ -1,13 +1,21 @@
-const joblib = require('joblib');
-const { transformToVector } = require('./emailPreprocessing');
+const axios = require('axios');
 
-const model = joblib.load('models/spam_model.pkl');  // Load the pre-trained spam detection model
+// Function to predict spam using the Flask API
+async function predictSpam(text) {
+    try {
+        // Send the text to the Flask API for prediction
+        const response = await axios.post('http://localhost:5000/predict', { message: text });
 
-// Predict if the email is spam or not
-function predictSpam(text) {
-    const vectorizedText = transformToVector(text);
-    const prediction = model.predict(vectorizedText);
-    return prediction[0] === 1 ? 'spam' : 'ham'; // Return 'spam' or 'ham' based on prediction
+        // Get the prediction result from the API response
+        const prediction = response.data.prediction;
+        
+        // Return the result - 'spam' or 'ham'
+        return prediction;
+    } catch (error) {
+        // Handle errors in API communication
+        console.error("Error calling Python API:", error);
+        return null;
+    }
 }
 
 module.exports = {

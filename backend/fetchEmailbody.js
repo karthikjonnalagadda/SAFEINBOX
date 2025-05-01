@@ -1,60 +1,59 @@
 require("dotenv").config();
 const Imap = require("imap-simple");
-const { simpleParser } = require("mailparser");
 
 const config = {
-    imap: {
-        user: process.env.EMAIL_USERNAME,
-        password: process.env.EMAIL_PASSWORD,
-        host: "imap.gmail.com",
-        port: 993,
-        tls: true,
-        authTimeout: 30000,
-        tlsOptions: { rejectUnauthorized: false } // Fix for self-signed certificate error
-    }
+  imap: {
+    user: process.env.EMAIL_USERNAME,
+    password: process.env.EMAIL_PASSWORD,
+    host: process.env.IMAP_HOST,
+    port: Number(process.env.IMAP_PORT),
+    tls: true,
+    authTimeout: 30000,
+    tlsOptions: { rejectUnauthorized: false },
+  },
 };
 
-async function fetchEmailBody(uid) {
-    try {
-        const connection = await Imap.connect(config);
-        console.log("Connected to IMAP server");
+async function fetchEmails(limit = 5) {  // 👈 added limit parameter (default 8)
+  try {
+    const connection = await Imap.connect(config);
+    console.log("✅ Connected to IMAP server");
 
-        await connection.openBox("INBOX");
+    await connection.openBox('INBOX', { readOnly: true });
 
-        // Search for the email using UID
-        const searchCriteria = [uid];  
-        const fetchOptions = { bodies: ["HEADER", "TEXT"], markSeen: false };
+    const searchCriteria = ['ALL'];  
+    const fetchOptions = {
+      bodies: ['HEADER.FIELDS (FROM TO SUBJECT DATE)', 'TEXT'],
+      struct: true
+    };
 
-        const results = await connection.search(searchCriteria, fetchOptions);
+    const results = await connection.search(searchCriteria, fetchOptions);
+    
+    // Sort emails by UID in descending order and limit by the parameter
+    const recent = results
+      .sort((a, b) => b.attributes.uid - a.attributes.uid)
+      .slice(0, limit);  // 👈 use the limit value
 
-        if (results.length === 0) {
-            connection.end();
-            return { message: "Email not found" };
-        }
+    const emails = recent.map(item => {
+      const header = item.parts.find(part => part.which.startsWith('HEADER')).body;
+      const bodyPart = item.parts.find(part => part.which === 'TEXT');
 
-        // Extract email details
-        const res = results[0];
-        const headerPart = res.parts.find((part) => part.which === "HEADER");
-        const bodyPart = res.parts.find((part) => part.which === "TEXT");
+      return {
+        id: item.attributes.uid,
+        subject: header.subject ? header.subject[0] : "No Subject",
+        from: header.from ? header.from[0] : "Unknown Sender",
+        date: header.date ? header.date[0] : "Unknown Date",
+        body: bodyPart?.body || "No Body",
+      };
+    });
 
-        const parsedHeader = headerPart ? headerPart.body : {};
-        const parsedBody = bodyPart ? await simpleParser(bodyPart.body) : null;
+    console.log(`📥 Fetched ${emails.length} Emails:`, emails);
 
-        const emailBody = {
-            uid,
-            subject: parsedHeader.subject ? parsedHeader.subject[0] : "No Subject",
-            from: parsedHeader.from ? parsedHeader.from[0] : "Unknown Sender",
-            to: parsedHeader.to ? parsedHeader.to[0] : "Unknown Recipient",
-            body: parsedBody ? parsedBody.text : "No Body"
-        };
-
-        connection.end();
-        return emailBody;
-
-    } catch (error) {
-        console.error("Error fetching email body:", error);
-        return { message: "Error fetching email" };
-    }
+    connection.end();
+    return emails;
+  } catch (error) {
+    console.error("❌ Error fetching emails:", error.message || error);
+    return [];
+  }
 }
 
-module.exports = fetchEmailBody;
+module.exports = fetchEmails;
