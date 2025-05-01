@@ -14,6 +14,17 @@ pipeline {
             }
         }
 
+        stage('Clean Previous Docker Setup') {
+            steps {
+                echo 'Stopping and removing existing containers (if any)...'
+                powershell '''
+                    docker stop $env:CONTAINER_NAME -ErrorAction SilentlyContinue
+                    docker rm $env:CONTAINER_NAME -ErrorAction SilentlyContinue
+                    docker rmi $env:IMAGE_NAME -ErrorAction SilentlyContinue
+                '''
+            }
+        }
+
         stage('Build Docker Image') {
             steps {
                 echo "Building Docker image: ${IMAGE_NAME}"
@@ -34,23 +45,41 @@ pipeline {
             }
         }
 
-        stage('Deploy Container') {
+        stage('Run Docker Container') {
             steps {
-                echo "Stopping existing container (if any) and deploying new one..."
-                script {
-                    powershell '''
-                        docker stop ${CONTAINER_NAME} || echo "No container to stop."
-                        docker rm ${CONTAINER_NAME} || echo "No container to remove."
-                        docker run -d -p 5000:5000 --name ${CONTAINER_NAME} ${IMAGE_NAME}
-                    '''
-                }
+                echo "Running Docker container: ${CONTAINER_NAME}"
+                powershell '''
+                    docker run -d -p 5000:5000 --name $env:CONTAINER_NAME $env:IMAGE_NAME
+                '''
+            }
+        }
+
+        stage('Show Running Containers') {
+            steps {
+                echo 'Currently running containers:'
+                powershell 'docker ps'
+            }
+        }
+
+        stage('Show Container Logs') {
+            steps {
+                echo 'Fetching latest logs from the container...'
+                powershell 'docker logs --tail 100 $env:CONTAINER_NAME'
             }
         }
     }
 
     post {
         failure {
-            echo 'Pipeline failed! Please check the logs.'
+            echo 'Pipeline failed. Attempting to clean up container...'
+            powershell '''
+                docker stop $env:CONTAINER_NAME -ErrorAction SilentlyContinue
+                docker rm $env:CONTAINER_NAME -ErrorAction SilentlyContinue
+            '''
+        }
+        always {
+            echo 'Cleaning up dangling images (if any)...'
+            powershell 'docker image prune -f'
         }
         success {
             echo 'Pipeline completed successfully!'
