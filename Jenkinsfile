@@ -8,14 +8,13 @@ pipeline {
     stages {
         stage('Clone') {
             steps {
-                git 'https://github.com/karthikjonnalagadda/SAFEINBOX.git'
+                git branch: 'main', url: 'https://github.com/karthikjonnalagadda/SAFEINBOX.git'
             }
         }
 
         stage('Build Docker Image') {
             steps {
                 script {
-                    // Ensure that IMAGE_NAME is used consistently
                     docker.build("${IMAGE_NAME}")
                 }
             }
@@ -38,4 +37,3 @@ pipeline {
         }
     }
 }
-
