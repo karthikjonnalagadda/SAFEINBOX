@@ -17,10 +17,10 @@ pipeline {
         stage('Clean Previous Docker Setup') {
             steps {
                 echo 'Stopping and removing existing containers (if any)...'
-                powershell '''
-                    docker stop $env:CONTAINER_NAME -ErrorAction SilentlyContinue
-                    docker rm $env:CONTAINER_NAME -ErrorAction SilentlyContinue
-                    docker rmi $env:IMAGE_NAME -ErrorAction SilentlyContinue
+                bat '''
+                    docker stop %CONTAINER_NAME%
+                    docker rm %CONTAINER_NAME%
+                    docker rmi %IMAGE_NAME%
                 '''
             }
         }
@@ -48,8 +48,8 @@ pipeline {
         stage('Run Docker Container') {
             steps {
                 echo "Running Docker container: ${CONTAINER_NAME}"
-                powershell '''
-                    docker run -d -p 5000:5000 --name $env:CONTAINER_NAME $env:IMAGE_NAME
+                bat '''
+                    docker run -d -p 5000:5000 --name %CONTAINER_NAME% %IMAGE_NAME%
                 '''
             }
         }
@@ -57,14 +57,14 @@ pipeline {
         stage('Show Running Containers') {
             steps {
                 echo 'Currently running containers:'
-                powershell 'docker ps'
+                bat 'docker ps'
             }
         }
 
         stage('Show Container Logs') {
             steps {
                 echo 'Fetching latest logs from the container...'
-                powershell 'docker logs --tail 100 $env:CONTAINER_NAME'
+                bat 'docker logs --tail 100 %CONTAINER_NAME%'
             }
         }
     }
@@ -72,14 +72,14 @@ pipeline {
     post {
         failure {
             echo 'Pipeline failed. Attempting to clean up container...'
-            powershell '''
-                docker stop $env:CONTAINER_NAME -ErrorAction SilentlyContinue
-                docker rm $env:CONTAINER_NAME -ErrorAction SilentlyContinue
+            bat '''
+                docker stop %CONTAINER_NAME%
+                docker rm %CONTAINER_NAME%
             '''
         }
         always {
             echo 'Cleaning up dangling images (if any)...'
-            powershell 'docker image prune -f'
+            bat 'docker image prune -f'
         }
         success {
             echo 'Pipeline completed successfully!'
