@@ -4,3 +4,5 @@ function classifyEmail(emailContent) {
 }
 
 module.exports = { classifyEmail };
+
+// Test the function
