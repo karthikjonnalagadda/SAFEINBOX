@@ -5,61 +5,56 @@ const bodyParser = require("body-parser");
 const mongoose = require("mongoose");
 const axios = require("axios");
 
-const fetchEmails = require("./fetchEmailbody"); // ✅ Correct: fetch multiple emails
-const fetchEmailbody = require("./fetchEmailbody"); // ✅ For fetching single email by id
-
+const fetchEmails = require("./fetchEmailbody");
 const authRoutes = require("./routes/auth");
 const emailRoutes = require("./routes/email");
 
 const app = express();
 
-// Middleware
 app.use(cors());
 app.use(bodyParser.json());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// MongoDB Connection (Updated: No more deprecation warning)
-const connectWithRetry = () => {
-  mongoose.connect(process.env.MONGO_URI)
-    .then(() => console.log("✅ MongoDB Connected Successfully!"))
-    .catch(err => {
-      console.error("❌ MongoDB Connection Error:", err.message);
-      console.log("🔄 Retrying MongoDB connection in 5 seconds...");
-      setTimeout(connectWithRetry, 5000);
-    });
-};
-connectWithRetry();
+// MongoDB connection
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("✅ MongoDB Connected Successfully!"))
+  .catch(err => console.error("❌ MongoDB Connection Error:", err.message));
 
 // Routes
 app.use("/api/auth", authRoutes);
 app.use("/api/email", emailRoutes);
 
-// Fetch and classify emails
+// === Fetch and classify emails ===
 app.get("/api/emails", async (req, res) => {
   try {
-    const emails = await fetchEmails();
+    const limit = 7;
+    const emails = await fetchEmails(limit);
 
-    if (!Array.isArray(emails)) {
-      return res.status(500).json({ message: "Expected an array of emails, got something else." });
-    }
-    if (emails.length === 0) {
-      return res.status(404).json({ message: "No new emails found." });
+    if (!emails.length) {
+      return res.status(404).json({ message: "No emails found." });
     }
 
     const classifiedEmails = await Promise.all(
       emails.map(async (email) => {
-        const emailText = `${email.subject} ${email.body}`;
+        const message = `${email.subject} ${email.body}`;
         try {
-          const { data } = await axios.post("http://127.0.0.1:5000/predict", { message: emailText });
+          const { data } = await axios.post(
+            process.env.ML_API_URL,
+            { message },
+            { timeout: 5000 }
+          );
+
+          const confidenceScore = data.confidence ?? 0;
+          const prediction = confidenceScore >= 0.6 ? "spam" : "ham";
 
           return {
             ...email,
-            isSpam: data.prediction === 1 ? "spam" : "ham",
-            confidence: data.confidence || "N/A",
+            isSpam: prediction,
+            confidence: `${(confidenceScore * 100).toFixed(2)}%`,
           };
-        } catch (error) {
-          console.error(`⚠️ Prediction error for [${email.subject}]:`, error.message);
+        } catch (err) {
+          console.error("❌ ML API Error:", err.message);
           return {
             ...email,
             isSpam: "unknown",
@@ -69,51 +64,40 @@ app.get("/api/emails", async (req, res) => {
       })
     );
 
-    res.json(classifiedEmails);
-  } catch (error) {
-    console.error("❌ Error fetching emails:", error);
-    res.status(500).json({ message: "Error fetching and classifying emails.", error: error.message });
+    res.json({
+      totalEmails: emails.length,
+      emails: classifiedEmails,
+    });
+  } catch (err) {
+    console.error("❌ Error in /api/emails:", err.message);
+    res.status(500).json({ message: "Server error during email processing." });
   }
 });
 
-// Fetch full email details by ID
+// === Fetch full email detail by ID ===
 app.get("/api/emailDetail/:id", async (req, res) => {
   try {
-    const email = await fetchEmailbody(req.params.id);
+    const emailId = req.params.id;
+    const emails = await fetchEmails(7);
+    const email = emails.find(e => String(e.id) === emailId);
 
-    if (!email) {
-      return res.status(404).json({ message: "Email not found." });
-    }
-
+    if (!email) return res.status(404).json({ message: "Email not found." });
     res.json(email);
-  } catch (error) {
-    console.error("❌ Error fetching email body:", error);
-    res.status(500).json({ message: "Error fetching email details.", error: error.message });
+  } catch (err) {
+    console.error("❌ Error in /api/emailDetail/:id:", err.message);
+    res.status(500).json({ message: "Failed to fetch email by ID." });
   }
 });
 
-// Classify one email text
-app.post("/api/classify-email", async (req, res) => {
-  const { emailText } = req.body;
-
-  try {
-    const { data } = await axios.post("http://127.0.0.1:5000/predict", { message: emailText });
-
-    res.json({
-      prediction: data.prediction === 1 ? "spam" : "ham",
-      confidence: data.confidence || "N/A",
-    });
-  } catch (error) {
-    console.error("❌ Error classifying email:", error.message);
-    res.status(500).json({ error: "Failed to classify email." });
-  }
-});
-
-// Health Check
+// === Health check ===
 app.get("/", (req, res) => {
-  res.send("🚀 SafeInbox API is running...");
+  const mongoStatus = mongoose.connection.readyState === 1
+    ? "MongoDB is connected"
+    : "MongoDB is not connected";
+  res.json({ message: "🚀 SafeInbox API is running...", mongoStatus });
 });
 
-// Start Server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🌐 Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => {
+  console.log(`🌐 Server running at http://localhost:${PORT}`);
+});

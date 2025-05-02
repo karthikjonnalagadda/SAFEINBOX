@@ -5,29 +5,31 @@ import re
 import os
 from datetime import datetime
 
-# === Setup === #
+# === Paths ===
 base_path = os.path.dirname(os.path.abspath(__file__))
-model_path = os.path.join(base_path, "enron_spam_model.pkl")
-vectorizer_path = os.path.join(base_path, "enron_tfidf_vectorizer.pkl")
+model_path = os.path.join(base_path,"spam_csv_model.pkl")
+vectorizer_path = os.path.join(base_path,"spam_csv_tfidf_vectorizer.pkl")
 
+# === Load Model & Vectorizer ===
 try:
     model = joblib.load(model_path)
     vectorizer = joblib.load(vectorizer_path)
     print("✅ Model and vectorizer loaded successfully!")
 except FileNotFoundError as e:
-    print(f"❌ Error loading files: {e}")
+    print(f"❌ Error loading model/vectorizer: {e}")
     raise
 
-# === Utils === #
+# === Text Cleaning ===
 def clean_text(text):
     text = text.lower()
-    text = re.sub(r'<.*?>', '', text)  # Remove HTML tags
-    text = re.sub(r'\S+@\S+', '', text)  # Remove email addresses
-    text = re.sub(r"http\S+|www\S+|https\S+", '', text)  # Remove URLs
-    text = re.sub(r'\W', ' ', text)  # Remove non-word characters
-    text = re.sub(r'\s+', ' ', text).strip()  # Remove extra whitespace
+    text = re.sub(r'<.*?>', '', text)
+    text = re.sub(r'\S+@\S+', '', text)
+    text = re.sub(r"http\S+|www\S+|https\S+", '', text)
+    text = re.sub(r'\W', ' ', text)
+    text = re.sub(r'\s+', ' ', text).strip()
     return text
 
+# === Logging ===
 def log_prediction(message, label, confidence):
     logs_path = os.path.join(base_path, "logs")
     os.makedirs(logs_path, exist_ok=True)
@@ -36,51 +38,80 @@ def log_prediction(message, label, confidence):
     with open(log_file, "a") as f:
         f.write(f"{timestamp}\t{label}\t{confidence:.4f}\t{message}\n")
 
-# === App Init === #
+# === Flask Init ===
 app = Flask(__name__)
 CORS(app)
 
-# === Routes === #
-
-@app.route('/ping', methods=['GET'])
+@app.route("/ping", methods=["GET"])
 def ping():
-    return jsonify({"message": "Server is live!"}), 200
+    return jsonify({"message": "Server is live"}), 200
 
-@app.route('/predict', methods=['POST'])
+@app.route("/predict", methods=["POST"])
 def predict():
-    data = request.get_json()
-    print(f"📩 Received data: {data}")
-
-    message = data.get("message", "")
-    if not message:
-        return jsonify({"error": "No message provided"}), 400
-
-    # 🚫 Remove 'undefined' string if present
-    message = message.replace("undefined", "").strip()
-
     try:
+        data = request.get_json(force=True)
+        message = data.get("message", "").replace("undefined", "").strip()
+
+        if not message:
+            return jsonify({"error": "No message provided"}), 400
+
         cleaned = clean_text(message)
         print(f"🧹 Cleaned message: {cleaned}")
 
+        if not cleaned or len(cleaned.split()) < 3:
+            return jsonify({
+                "prediction": 1,
+                "label": "spam",
+                "confidence": 1.0,
+                "note": "Message too short or meaningless after cleaning."
+            })
+
         vector = vectorizer.transform([cleaned])
-        prediction = model.predict(vector)[0]
+        proba = model.predict_proba(vector)[0]
+        confidence = float(proba[1])
+        prediction = 1 if confidence >= 0.4 else 0
         label = "spam" if prediction == 1 else "ham"
 
-        proba = model.predict_proba(vector)[0]
-        confidence = float(proba[1]) if label == "spam" else float(proba[0])
-
-        # Log the prediction
         log_prediction(cleaned, label, confidence)
 
         return jsonify({
-            "prediction": label,
+            "prediction": prediction,
+            "label": label,
             "confidence": round(confidence, 4)
         })
 
     except Exception as e:
-        print(f"❌ Error during prediction: {e}")
-        return jsonify({"error": "Error processing the request"}), 500
+        print(f"❌ Error in /predict:", str(e))
+        return jsonify({"error": "Internal server error during prediction"}), 500
 
-# === Main === #
-if __name__ == '__main__':
-    app.run(port=5000, debug=True)
+@app.route("/test", methods=["GET"])
+def test_endpoint():
+    test_cases = [
+        {"message": "Win a million dollars now!", "expected": "spam"},
+        {"message": "Please see the attached report for review.", "expected": "ham"},
+        {"message": "undefined", "expected": "spam"},
+        {"message": "<html>click here now</html>", "expected": "spam"},
+        {"message": " ", "expected": "spam"}
+    ]
+    results = []
+    for test in test_cases:
+        cleaned = clean_text(test["message"])
+        if not cleaned or len(cleaned.split()) < 3:
+            label = "spam"
+            confidence = 1.0
+        else:
+            vector = vectorizer.transform([cleaned])
+            proba = model.predict_proba(vector)[0]
+            confidence = float(proba[1])
+            label = "spam" if confidence >= 0.4 else "ham"
+        results.append({
+            "message": test["message"],
+            "expected": test["expected"],
+            "predicted": label,
+            "confidence": round(confidence, 4)
+        })
+    return jsonify(results), 200
+
+# === Run App ===
+if __name__ == "__main__":
+    app.run(port=5001, debug=True)

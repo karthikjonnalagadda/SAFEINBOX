@@ -1,7 +1,8 @@
+require("dotenv").config();
 const Imap = require("imap");
-const { simpleParser } = require("mailparser");
+const { htmlToText } = require("html-to-text");
 
-function fetchEmails() {
+function fetchEmails(limit = 10) {
   return new Promise((resolve, reject) => {
     const imap = new Imap({
       user: process.env.EMAIL_USERNAME,
@@ -12,65 +13,77 @@ function fetchEmails() {
       tlsOptions: { rejectUnauthorized: false },
     });
 
-    imap.once("ready", function () {
-      imap.openBox("INBOX", true, function (err, box) {
-        if (err) {
-          reject(err);
-          return;
-        }
+    const emails = [];
 
-        imap.search(['ALL'], function (err, results) {
-          if (err) {
-            reject(err);
-            return;
-          }
+    function cleanupAndReject(err) {
+      try { imap.end(); } catch {}
+      reject(err);
+    }
 
-          if (!results || results.length === 0) {
-            return resolve([]); // No emails
-          }
+    imap.once("ready", () => {
+      imap.openBox("INBOX", true, (err, box) => {
+        if (err) return cleanupAndReject(err);
 
-          const fetch = imap.fetch(results, { bodies: "" });
-          const emails = [];
+        imap.search(["ALL"], (err, results) => {
+          if (err) return cleanupAndReject(err);
+          if (!results?.length) return resolve([]);
 
-          fetch.on("message", function (msg) {
-            msg.on("body", function (stream) {
-              let bodyBuffer = "";
+          const latest = results.slice(-limit);
 
-              stream.on("data", function (chunk) {
-                bodyBuffer += chunk.toString("utf8");
+          const fetch = imap.fetch(latest, {
+            bodies: ["HEADER.FIELDS (FROM TO SUBJECT DATE)", "TEXT"],
+            struct: true,
+          });
+
+          fetch.on("message", msg => {
+            let headerBuffer = "", bodyBuffer = "";
+
+            msg.on("body", (stream, info) => {
+              stream.on("data", chunk => {
+                if (info.which === "TEXT") bodyBuffer += chunk.toString("utf8");
+                else headerBuffer += chunk.toString("utf8");
               });
+            });
 
-              stream.once("end", async function () {
-                try {
-                  const parsed = await simpleParser(bodyBuffer);
+            msg.once("end", () => {
+              const headers = parseHeaders(headerBuffer);
+              const bodyText = htmlToText(bodyBuffer || "", { wordwrap: false });
 
-                  emails.push({
-                    subject: parsed.subject || "No Subject",
-                    from: parsed.from?.text || "Unknown Sender",
-                    date: parsed.date || "Unknown Date",
-                    body: parsed.text || "No Body",
-                  });
-                } catch (parseErr) {
-                  console.error("❌ Error parsing email:", parseErr.message);
-                }
+              emails.push({
+                subject: headers.subject || "No Subject",
+                from: headers.from || "Unknown Sender",
+                date: headers.date || "Unknown Date",
+                body: bodyText,
               });
             });
           });
 
-          fetch.once("end", function () {
+          fetch.once("end", () => {
             imap.end();
             resolve(emails);
           });
+
+          fetch.once("error", cleanupAndReject);
         });
       });
     });
 
-    imap.once("error", function (err) {
-      reject(err);
-    });
-
+    imap.once("error", cleanupAndReject);
     imap.connect();
   });
+}
+
+// Safe header parser
+function parseHeaders(headerStr) {
+  const headers = {};
+  const lines = headerStr.split(/\r?\n/);
+
+  for (const line of lines) {
+    if (line.startsWith("From:")) headers.from = line.replace("From:", "").trim();
+    else if (line.startsWith("Subject:")) headers.subject = line.replace("Subject:", "").trim();
+    else if (line.startsWith("Date:")) headers.date = line.replace("Date:", "").trim();
+  }
+  return headers;
 }
 
 module.exports = fetchEmails;

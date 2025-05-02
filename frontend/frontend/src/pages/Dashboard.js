@@ -1,34 +1,39 @@
-import React, { useState, useEffect } from "react";
-import axios from "axios";
-import { Link } from "react-router-dom";
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+import Navbar from '../components/Navbar';
+import EmailCard from '../components/EmailCard';
+import Loading from '../components/Loading';
 
 export default function Dashboard() {
-  const [userEmail, setUserEmail] = useState("");
+  const [userEmail, setUserEmail] = useState('');
   const [allEmails, setAllEmails] = useState([]);
   const [displayedEmails, setDisplayedEmails] = useState([]);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [sortOption, setSortOption] = useState("latest");
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortOption, setSortOption] = useState('latest');
+  const [filterOption, setFilterOption] = useState('all');
   const [fetchingEmails, setFetchingEmails] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
-  // Retrieve logged-in email from localStorage
   useEffect(() => {
-    const email = localStorage.getItem("email");
-    if (email) {
-      setUserEmail(email);
-    } else {
-      // If no email found, redirect to login
-      window.location.href = "/login";
-    }
+    const email = localStorage.getItem('email');
+    if (!email) return (window.location.href = '/login');
+    setUserEmail(email);
   }, []);
 
-  // Fetch emails from backend
   const fetchEmails = async () => {
     setFetchingEmails(true);
+    setErrorMessage('');
     try {
-      const response = await axios.get("http://localhost:5000/api/emails");
-      setAllEmails(response.data);
-    } catch (error) {
-      console.error("Failed to fetch emails:", error);
+      const res = await axios.get('http://localhost:5000/api/emails');
+      if (res.data?.emails) {
+        setAllEmails(res.data.emails);
+      } else {
+        setErrorMessage('No emails found.');
+        setAllEmails([]);
+      }
+    } catch (err) {
+      console.error('❌ Failed to fetch emails:', err.message);
+      setErrorMessage('Server error while fetching emails.');
     } finally {
       setFetchingEmails(false);
     }
@@ -38,167 +43,102 @@ export default function Dashboard() {
     fetchEmails();
   }, []);
 
-  // Filter & sort emails
   useEffect(() => {
-    let filtered = [...allEmails];
+    let list = [...allEmails];
+
+    if (filterOption !== 'all') {
+      list = list.filter(e => e.isSpam === filterOption);
+    }
 
     if (searchTerm) {
-      filtered = filtered.filter((email) => {
-        const subj = email.subject || "";
-        const from = email.from || "";
-        return (
-          subj.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          from.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-      });
+      const q = searchTerm.toLowerCase();
+      list = list.filter(e =>
+        (e.subject || '').toLowerCase().includes(q) ||
+        (e.from || '').toLowerCase().includes(q)
+      );
     }
 
-    if (sortOption === "latest") {
-      filtered.sort((a, b) => b.id - a.id);
-    } else if (sortOption === "oldest") {
-      filtered.sort((a, b) => a.id - b.id);
-    } else if (sortOption === "sender") {
-      filtered.sort((a, b) => (a.from || "").localeCompare(b.from || ""));
+    if (sortOption === 'latest') {
+      list.sort((a, b) => new Date(b.date) - new Date(a.date));
+    } else if (sortOption === 'oldest') {
+      list.sort((a, b) => new Date(a.date) - new Date(b.date));
+    } else if (sortOption === 'sender') {
+      list.sort((a, b) => (a.from || '').localeCompare(b.from || ''));
     }
 
-    setDisplayedEmails(filtered);
-  }, [allEmails, searchTerm, sortOption]);
+    setDisplayedEmails(list);
+  }, [allEmails, searchTerm, sortOption, filterOption]);
 
   return (
-    <div style={{ padding: "20px", fontFamily: "Arial, sans-serif" }}>
-      {/* Display logged-in email */}
-      <div style={{ marginBottom: "20px", textAlign: "center" }}>
-        <strong>Logged in as:</strong> {userEmail}
-      </div>
+    <div>
+      <Navbar />
+      <div style={{ padding: '20px', maxWidth: '900px', margin: 'auto', marginTop: '80px' }}>
+        <div style={{ marginBottom: '20px', textAlign: 'center' }}>
+          <strong>Logged in as:</strong> {userEmail}
+        </div>
 
-      <h2 style={{ textAlign: "center", marginBottom: "20px" }}>Inbox</h2>
+        <h2 style={{ textAlign: 'center', marginBottom: '20px' }}>📥 Inbox</h2>
 
-      {/* Controls */}
-      <div
-        style={{
-          marginBottom: "20px",
-          display: "flex",
-          justifyContent: "center",
-          flexWrap: "wrap",
-        }}
-      >
-        <button
-          onClick={fetchEmails}
-          style={{
-            padding: "10px 20px",
-            backgroundColor: "#28a745",
-            color: "white",
-            border: "none",
-            borderRadius: "5px",
-            cursor: "pointer",
-            margin: "5px",
-          }}
-        >
-          🔄 Refresh
-        </button>
+        <div style={{ display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
+          <button onClick={fetchEmails} style={buttonStyle}>🔄 Refresh</button>
 
-        <input
-          type="text"
-          placeholder="Search by Subject or Sender"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          style={{
-            padding: "10px",
-            borderRadius: "5px",
-            border: "1px solid #ddd",
-            width: "250px",
-            margin: "5px",
-          }}
-        />
+          <input
+            type="text"
+            placeholder="Search by Subject or Sender"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+            style={inputStyle}
+          />
 
-        <select
-          value={sortOption}
-          onChange={(e) => setSortOption(e.target.value)}
-          style={{
-            padding: "10px",
-            borderRadius: "5px",
-            border: "1px solid #ddd",
-            margin: "5px",
-          }}
-        >
-          <option value="latest">Latest</option>
-          <option value="oldest">Oldest</option>
-          <option value="sender">Sender (A-Z)</option>
-        </select>
-      </div>
+          <select value={filterOption} onChange={e => setFilterOption(e.target.value)} style={selectStyle}>
+            <option value="all">All</option>
+            <option value="ham">Ham</option>
+            <option value="spam">Spam</option>
+          </select>
 
-      {/* Email List */}
-      <div>
+          <select value={sortOption} onChange={e => setSortOption(e.target.value)} style={selectStyle}>
+            <option value="latest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="sender">Sender (A-Z)</option>
+          </select>
+        </div>
+
+        {errorMessage && (
+          <p style={{ color: 'red', textAlign: 'center' }}>{errorMessage}</p>
+        )}
+
         {fetchingEmails ? (
-          <p style={{ textAlign: "center" }}>Fetching emails... Please wait</p>
+          <Loading />
         ) : displayedEmails.length === 0 ? (
-          <p style={{ textAlign: "center" }}>No emails to show.</p>
+          <p style={{ textAlign: 'center' }}>No emails to display.</p>
         ) : (
-          displayedEmails.map((email) => (
-            <div
-              key={email.id}
-              style={{
-                backgroundColor: "#fff",
-                border: "1px solid #ddd",
-                borderRadius: "8px",
-                marginBottom: "10px",
-                padding: "15px",
-                boxShadow: "0 2px 5px rgba(0, 0, 0, 0.1)",
-                transition: "transform 0.2s",
-                cursor: "pointer",
-              }}
-            >
-              <Link
-                to={`/email/${email.id}`}
-                style={{
-                  textDecoration: "none",
-                  color: "#333",
-                  fontSize: "16px",
-                  fontWeight: "bold",
-                }}
-              >
-                {email.subject || "(No Subject)"} — {email.from || "Unknown Sender"}
-              </Link>
-
-              {/* Spam/Ham Tag */}
-              {email.isSpam && (
-                <span
-                  style={{
-                    marginLeft: "10px",
-                    padding: "5px 10px",
-                    borderRadius: "12px",
-                    backgroundColor: email.isSpam === "spam" ? "red" : "green",
-                    color: "white",
-                    fontSize: "12px",
-                    fontWeight: "bold",
-                  }}
-                >
-                  {email.isSpam.toUpperCase()}
-                </span>
-              )}
-
-              {/* Confidence Score */}
-              {email.confidence !== undefined && (
-                <button
-                  style={{
-                    marginLeft: "20px",
-                    padding: "5px 10px",
-                    backgroundColor: "#007bff",
-                    color: "white",
-                    border: "none",
-                    borderRadius: "5px",
-                    cursor: "default",
-                    fontSize: "12px",
-                  }}
-                  disabled
-                >
-                  Confidence: {Math.round(email.confidence * 100)}%
-                </button>
-              )}
-            </div>
+          displayedEmails.map(email => (
+            <EmailCard key={email.id} email={email} />
           ))
         )}
       </div>
     </div>
   );
 }
+
+const buttonStyle = {
+  padding: '10px 20px',
+  backgroundColor: '#28a745',
+  color: 'white',
+  border: 'none',
+  borderRadius: '5px',
+  cursor: 'pointer'
+};
+
+const inputStyle = {
+  padding: '10px',
+  borderRadius: '5px',
+  border: '1px solid #ddd',
+  width: '240px'
+};
+
+const selectStyle = {
+  padding: '10px',
+  borderRadius: '5px',
+  border: '1px solid #ddd'
+};
